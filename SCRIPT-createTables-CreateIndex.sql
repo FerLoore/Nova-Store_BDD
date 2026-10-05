@@ -1,227 +1,284 @@
 -- ============================================================
--- SISTEMA DE COMPRAS, INVENTARIO, PEDIDOS Y VENTAS
--- Script de creación de base de datos (ORACLE DATABASE 12c+)
--- Tienda de ropa: hombre / mujer, varias marcas (Nike, Adidas...)
+-- NOVA — SISTEMA DE COMPRAS, INVENTARIO, PEDIDOS Y VENTAS
+-- Tienda de ropa (hombre/mujer, varias marcas)
+-- ORACLE DATABASE 12c+
+-- Convención: NOVA_<TABLA> / <ABREVIATURA>_<ATRIBUTO>
 -- ============================================================
 
 -- ------------------------------------------------------------
--- MÓDULO: SEGURIDAD
+-- NOVA_ROL
 -- ------------------------------------------------------------
-CREATE TABLE roles (
-    id_rol      NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    nombre      VARCHAR2(50) NOT NULL UNIQUE,
-    descripcion VARCHAR2(150)
-);
-
-CREATE TABLE usuarios (
-    id_usuario   NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    id_rol       NUMBER NOT NULL REFERENCES roles(id_rol),
-    nombre       VARCHAR2(100) NOT NULL,
-    correo       VARCHAR2(120) NOT NULL UNIQUE,
-    contrasena   VARCHAR2(255) NOT NULL, -- almacenar siempre con hash (bcrypt)
-    activo       NUMBER(1) DEFAULT 1 NOT NULL CHECK (activo IN (0,1)),
-    creado_en    TIMESTAMP DEFAULT SYSTIMESTAMP NOT NULL
+CREATE TABLE NOVA_ROL (
+    ROL_ROL         NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    ROL_NOMBRE      VARCHAR2(50) NOT NULL UNIQUE,
+    ROL_DESCRIPCION VARCHAR2(150),
+    ROL_PERMISO     VARCHAR2(100),
+    ROL_ACTIVO      NUMBER(1) DEFAULT 1 NOT NULL CHECK (ROL_ACTIVO IN (0,1))
 );
 
 -- ------------------------------------------------------------
--- MÓDULO: CATÁLOGO (tienda de ropa: hombre / mujer, varias marcas)
+-- NOVA_USUARIO
 -- ------------------------------------------------------------
-CREATE TABLE marcas (
-    id_marca    NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    nombre      VARCHAR2(80) NOT NULL UNIQUE,   -- Nike, Adidas, Zara, Distefano...
-    descripcion VARCHAR2(200)
-);
-
-CREATE TABLE categorias (
-    id_categoria NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    nombre       VARCHAR2(80) NOT NULL,   -- Camisas, Pantalones, Zapatos, Chaquetas, Vestidos...
-    descripcion  VARCHAR2(200)
-);
-
--- Producto genérico: "Playera Polo Nike Dri-Fit". El detalle real de venta
--- (talla, color, stock) vive en variantes_producto.
-CREATE TABLE productos (
-    id_producto     NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    id_categoria    NUMBER NOT NULL REFERENCES categorias(id_categoria),
-    id_marca        NUMBER NOT NULL REFERENCES marcas(id_marca),
-    nombre          VARCHAR2(150) NOT NULL,
-    descripcion     CLOB,
-    genero          VARCHAR2(10) NOT NULL CHECK (genero IN ('HOMBRE','MUJER','UNISEX')),
-    temporada       VARCHAR2(30),            -- Verano 2026, Invierno 2026 (opcional)
-    activo          NUMBER(1) DEFAULT 1 NOT NULL CHECK (activo IN (0,1)),
-    creado_en       TIMESTAMP DEFAULT SYSTIMESTAMP NOT NULL
-);
-
--- Cada combinación talla/color es lo que realmente se compra, vende y almacena
-CREATE TABLE variantes_producto (
-    id_variante     NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    id_producto     NUMBER NOT NULL REFERENCES productos(id_producto) ON DELETE CASCADE,
-    talla           VARCHAR2(10) NOT NULL,   -- S, M, L, XL o numérica (32, 34, 8.5...)
-    color           VARCHAR2(30) NOT NULL,
-    codigo_sku      VARCHAR2(50) NOT NULL UNIQUE,
-    precio_compra   NUMBER(12,2) DEFAULT 0 NOT NULL,
-    precio_venta    NUMBER(12,2) DEFAULT 0 NOT NULL,
-    stock_minimo    NUMBER DEFAULT 0 NOT NULL,
-    activo          NUMBER(1) DEFAULT 1 NOT NULL CHECK (activo IN (0,1)),
-    CONSTRAINT uq_variante UNIQUE (id_producto, talla, color)
+CREATE TABLE NOVA_USUARIO (
+    USU_USUARIO    NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    ROL_ROL        NUMBER NOT NULL REFERENCES NOVA_ROL(ROL_ROL),
+    USU_NOMBRE     VARCHAR2(100) NOT NULL,
+    USU_EMAIL      VARCHAR2(120) NOT NULL UNIQUE,
+    USU_PASSWORD   VARCHAR2(255) NOT NULL,  -- almacenar siempre con hash (bcrypt)
+    USU_ACTIVO     NUMBER(1) DEFAULT 1 NOT NULL CHECK (USU_ACTIVO IN (0,1)),
+    USU_CREADO     TIMESTAMP DEFAULT SYSTIMESTAMP NOT NULL
 );
 
 -- ------------------------------------------------------------
--- MÓDULO: INVENTARIO
+-- NOVA_MARCA
 -- ------------------------------------------------------------
-CREATE TABLE almacenes (
-    id_almacen NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    nombre     VARCHAR2(80) NOT NULL,
-    ubicacion  VARCHAR2(150)
-);
-
--- Stock consolidado por variante (talla/color)/almacén (se actualiza vía movimientos)
-CREATE TABLE inventario (
-    id_inventario NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    id_variante   NUMBER NOT NULL REFERENCES variantes_producto(id_variante),
-    id_almacen    NUMBER NOT NULL REFERENCES almacenes(id_almacen),
-    cantidad      NUMBER DEFAULT 0 NOT NULL,
-    CONSTRAINT uq_inventario UNIQUE (id_variante, id_almacen)
-);
-
--- Kardex: auditoría de TODO movimiento de inventario
-CREATE TABLE movimientos_inventario (
-    id_movimiento   NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    id_variante     NUMBER NOT NULL REFERENCES variantes_producto(id_variante),
-    id_almacen      NUMBER NOT NULL REFERENCES almacenes(id_almacen),
-    tipo_movimiento VARCHAR2(10) NOT NULL CHECK (tipo_movimiento IN ('ENTRADA','SALIDA')),
-    cantidad        NUMBER NOT NULL CHECK (cantidad > 0),
-    tipo_documento  VARCHAR2(20) NOT NULL, -- 'COMPRA', 'VENTA', 'AJUSTE'
-    documento_id    NUMBER,                -- id de la compra/venta que originó el movimiento
-    id_usuario      NUMBER NOT NULL REFERENCES usuarios(id_usuario),
-    fecha           TIMESTAMP DEFAULT SYSTIMESTAMP NOT NULL,
-    observacion     VARCHAR2(200)
+CREATE TABLE NOVA_MARCA (
+    MAR_MARCA       NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    MAR_NOMBRE      VARCHAR2(80) NOT NULL UNIQUE,   -- Nike, Adidas, Zara, Distefano...
+    MAR_DESCRIPCION VARCHAR2(200),
+    MAR_ACTIVO NUMBER(1) DEFAULT 1 NOT NULL CHECK (MAR_ACTIVO IN (0,1))
 );
 
 -- ------------------------------------------------------------
--- MÓDULO: COMPRAS
+-- NOVA_CATEGORIA
 -- ------------------------------------------------------------
-CREATE TABLE proveedores (
-    id_proveedor NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    nombre       VARCHAR2(120) NOT NULL,
-    ruc_nit      VARCHAR2(30),
-    telefono     VARCHAR2(30),
-    correo       VARCHAR2(120),
-    direccion    VARCHAR2(200)
-);
-
-CREATE TABLE compras (
-    id_compra    NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    id_proveedor NUMBER NOT NULL REFERENCES proveedores(id_proveedor),
-    id_usuario   NUMBER NOT NULL REFERENCES usuarios(id_usuario),
-    fecha        TIMESTAMP DEFAULT SYSTIMESTAMP NOT NULL,
-    estado       VARCHAR2(20) DEFAULT 'PENDIENTE' NOT NULL
-                 CHECK (estado IN ('PENDIENTE','RECIBIDA','CANCELADA')),
-    total        NUMBER(12,2) DEFAULT 0 NOT NULL
-);
-
-CREATE TABLE detalle_compra (
-    id_detalle_compra NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    id_compra         NUMBER NOT NULL REFERENCES compras(id_compra) ON DELETE CASCADE,
-    id_variante       NUMBER NOT NULL REFERENCES variantes_producto(id_variante),
-    cantidad          NUMBER NOT NULL CHECK (cantidad > 0),
-    precio_unitario   NUMBER(12,2) NOT NULL,
-    subtotal          NUMBER(12,2) NOT NULL
+CREATE TABLE NOVA_CATEGORIA (
+    CATE_CATEGORIA   NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    CATE_NOMBRE      VARCHAR2(80) NOT NULL,   -- Camisas, Pantalones, Zapatos, Vestidos...
+    CATE_DESCRIPCION VARCHAR2(200)
 );
 
 -- ------------------------------------------------------------
--- MÓDULO: PEDIDOS Y VENTAS
+-- NOVA_PRODUCTO (producto genérico; el detalle vendible vive en NOVA_VARIANTE)
 -- ------------------------------------------------------------
-CREATE TABLE clientes (
-    id_cliente NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    nombre     VARCHAR2(120) NOT NULL,
-    dpi_nit    VARCHAR2(30),
-    telefono   VARCHAR2(30),
-    correo     VARCHAR2(120),
-    direccion  VARCHAR2(200)
-);
-
-CREATE TABLE pedidos (
-    id_pedido  NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    id_cliente NUMBER NOT NULL REFERENCES clientes(id_cliente),
-    id_usuario NUMBER NOT NULL REFERENCES usuarios(id_usuario),
-    fecha      TIMESTAMP DEFAULT SYSTIMESTAMP NOT NULL,
-    estado     VARCHAR2(20) DEFAULT 'PENDIENTE' NOT NULL
-               CHECK (estado IN ('PENDIENTE','FACTURADO','CANCELADO')),
-    total      NUMBER(12,2) DEFAULT 0 NOT NULL
-);
-
-CREATE TABLE detalle_pedido (
-    id_detalle_pedido NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    id_pedido         NUMBER NOT NULL REFERENCES pedidos(id_pedido) ON DELETE CASCADE,
-    id_variante       NUMBER NOT NULL REFERENCES variantes_producto(id_variante),
-    cantidad          NUMBER NOT NULL CHECK (cantidad > 0),
-    precio_unitario   NUMBER(12,2) NOT NULL,
-    subtotal          NUMBER(12,2) NOT NULL
-);
-
-CREATE TABLE ventas (
-    id_venta   NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    id_pedido  NUMBER REFERENCES pedidos(id_pedido), -- opcional: venta directa sin pedido previo
-    id_cliente NUMBER NOT NULL REFERENCES clientes(id_cliente),
-    id_usuario NUMBER NOT NULL REFERENCES usuarios(id_usuario),
-    fecha      TIMESTAMP DEFAULT SYSTIMESTAMP NOT NULL,
-    estado     VARCHAR2(20) DEFAULT 'COMPLETADA' NOT NULL
-               CHECK (estado IN ('COMPLETADA','ANULADA')),
-    total      NUMBER(12,2) DEFAULT 0 NOT NULL
-);
-
-CREATE TABLE detalle_venta (
-    id_detalle_venta NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    id_venta         NUMBER NOT NULL REFERENCES ventas(id_venta) ON DELETE CASCADE,
-    id_variante      NUMBER NOT NULL REFERENCES variantes_producto(id_variante),
-    cantidad         NUMBER NOT NULL CHECK (cantidad > 0),
-    precio_unitario  NUMBER(12,2) NOT NULL,
-    subtotal         NUMBER(12,2) NOT NULL
-);
-
-CREATE TABLE pagos (
-    id_pago    NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    id_venta   NUMBER NOT NULL REFERENCES ventas(id_venta),
-    fecha      TIMESTAMP DEFAULT SYSTIMESTAMP NOT NULL,
-    monto      NUMBER(12,2) NOT NULL,
-    metodo     VARCHAR2(30) NOT NULL CHECK (metodo IN ('EFECTIVO','TARJETA','TRANSFERENCIA'))
+CREATE TABLE NOVA_PRODUCTO (
+    PRODU_PRODUCTO    NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    CATE_CATEGORIA    NUMBER NOT NULL REFERENCES NOVA_CATEGORIA(CATE_CATEGORIA),
+    MAR_MARCA         NUMBER NOT NULL REFERENCES NOVA_MARCA(MAR_MARCA),
+    PRODU_NOMBRE      VARCHAR2(150) NOT NULL,
+    PRODU_DESCRIPCION CLOB,
+    PRODU_GENERO      VARCHAR2(10) NOT NULL CHECK (PRODU_GENERO IN ('HOMBRE','MUJER','UNISEX')),
+    PRODU_TEMPORADA   VARCHAR2(30),
+    PRODU_ACTIVO      NUMBER(1) DEFAULT 1 NOT NULL CHECK (PRODU_ACTIVO IN (0,1)),
+    PRODU_CREADO      TIMESTAMP DEFAULT SYSTIMESTAMP NOT NULL
 );
 
 -- ------------------------------------------------------------
--- ÍNDICES RECOMENDADOS (consultas frecuentes)
+-- NOVA_VARIANTE (talla / color — lo que realmente se compra, vende y almacena)
 -- ------------------------------------------------------------
-CREATE INDEX idx_productos_categoria ON productos(id_categoria);
-CREATE INDEX idx_productos_marca ON productos(id_marca);
-CREATE INDEX idx_productos_genero ON productos(genero);
-CREATE INDEX idx_variantes_producto ON variantes_producto(id_producto);
-CREATE INDEX idx_movimientos_variante ON movimientos_inventario(id_variante, id_almacen);
-CREATE INDEX idx_compras_proveedor ON compras(id_proveedor);
-CREATE INDEX idx_ventas_cliente ON ventas(id_cliente);
-CREATE INDEX idx_pedidos_cliente ON pedidos(id_cliente);
+CREATE TABLE NOVA_VARIANTE (
+    VAR_VARIANTE       NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    PRODU_PRODUCTO     NUMBER NOT NULL REFERENCES NOVA_PRODUCTO(PRODU_PRODUCTO) ON DELETE CASCADE,
+    VAR_TALLA          VARCHAR2(10) NOT NULL,
+    VAR_COLOR          VARCHAR2(30) NOT NULL,
+    VAR_SKU            VARCHAR2(50) NOT NULL UNIQUE,
+    VAR_PRECIO_COMPRA  NUMBER(12,2) DEFAULT 0 NOT NULL,
+    VAR_PRECIO_VENTA   NUMBER(12,2) DEFAULT 0 NOT NULL,
+    VAR_STOCK_MINIMO   NUMBER DEFAULT 0 NOT NULL,
+    VAR_ACTIVO         NUMBER(1) DEFAULT 1 NOT NULL CHECK (VAR_ACTIVO IN (0,1)),
+    CONSTRAINT UQ_VARIANTE UNIQUE (PRODU_PRODUCTO, VAR_TALLA, VAR_COLOR)
+);
 
 -- ------------------------------------------------------------
--- TRIGGER: actualizar inventario al registrar un movimiento
--- Oracle no tiene "ON CONFLICT ... DO UPDATE", se usa MERGE
+-- NOVA_ALMACEN
 -- ------------------------------------------------------------
-CREATE OR REPLACE TRIGGER trg_movimiento_inventario
-AFTER INSERT ON movimientos_inventario
+CREATE TABLE NOVA_ALMACEN (
+    ALM_ALMACEN   NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    ALM_NOMBRE    VARCHAR2(80) NOT NULL,
+    ALM_UBICACION VARCHAR2(150)
+);
+
+-- ------------------------------------------------------------
+-- NOVA_INVENTARIO (stock consolidado por variante/almacén)
+-- ------------------------------------------------------------
+CREATE TABLE NOVA_INVENTARIO (
+    INV_INVENTARIO NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    VAR_VARIANTE   NUMBER NOT NULL REFERENCES NOVA_VARIANTE(VAR_VARIANTE),
+    ALM_ALMACEN    NUMBER NOT NULL REFERENCES NOVA_ALMACEN(ALM_ALMACEN),
+    INV_CANTIDAD   NUMBER DEFAULT 0 NOT NULL,
+    CONSTRAINT UQ_INVENTARIO UNIQUE (VAR_VARIANTE, ALM_ALMACEN)
+);
+
+-- ------------------------------------------------------------
+-- NOVA_MOVIMIENTO_INVENTARIO (kardex: auditoría de todo movimiento)
+-- ------------------------------------------------------------
+CREATE TABLE NOVA_MOVIMIENTO_INVENTARIO (
+    MOVI_MOVIMIENTO      NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    VAR_VARIANTE         NUMBER NOT NULL REFERENCES NOVA_VARIANTE(VAR_VARIANTE),
+    ALM_ALMACEN          NUMBER NOT NULL REFERENCES NOVA_ALMACEN(ALM_ALMACEN),
+    MOVI_TIPO            VARCHAR2(10) NOT NULL CHECK (MOVI_TIPO IN ('ENTRADA','SALIDA')),
+    MOVI_CANTIDAD        NUMBER NOT NULL CHECK (MOVI_CANTIDAD > 0),
+    MOVI_TIPO_DOCUMENTO  VARCHAR2(20) NOT NULL,  -- 'COMPRA', 'VENTA', 'AJUSTE'
+    MOVI_DOCUMENTO_ID    NUMBER,
+    USU_USUARIO          NUMBER NOT NULL REFERENCES NOVA_USUARIO(USU_USUARIO),
+    MOVI_FECHA           TIMESTAMP DEFAULT SYSTIMESTAMP NOT NULL,
+    MOVI_OBSERVACION     VARCHAR2(200)
+);
+
+-- ------------------------------------------------------------
+-- NOVA_PROVEEDOR
+-- ------------------------------------------------------------
+CREATE TABLE NOVA_PROVEEDOR (
+    PROV_PROVEEDOR NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    PROV_NOMBRE    VARCHAR2(120) NOT NULL,
+    PROV_RUC_NIT   VARCHAR2(30),
+    PROV_TELEFONO  VARCHAR2(30),
+    PROV_CORREO    VARCHAR2(120),
+    PROV_DIRECCION VARCHAR2(200)
+);
+
+-- ------------------------------------------------------------
+-- NOVA_COMPRA
+-- ------------------------------------------------------------
+CREATE TABLE NOVA_COMPRA (
+    COMP_COMPRA    NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    PROV_PROVEEDOR NUMBER NOT NULL REFERENCES NOVA_PROVEEDOR(PROV_PROVEEDOR),
+    USU_USUARIO    NUMBER NOT NULL REFERENCES NOVA_USUARIO(USU_USUARIO),
+    COMP_FECHA     TIMESTAMP DEFAULT SYSTIMESTAMP NOT NULL,
+    COMP_ESTADO    VARCHAR2(20) DEFAULT 'PENDIENTE' NOT NULL
+                   CHECK (COMP_ESTADO IN ('PENDIENTE','RECIBIDA','CANCELADA')),
+    COMP_TOTAL     NUMBER(12,2) DEFAULT 0 NOT NULL
+);
+
+-- ------------------------------------------------------------
+-- NOVA_DETALLE_COMPRA
+-- ------------------------------------------------------------
+CREATE TABLE NOVA_DETALLE_COMPRA (
+    DETCOM_DETALLE_COMPRA NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    COMP_COMPRA           NUMBER NOT NULL REFERENCES NOVA_COMPRA(COMP_COMPRA) ON DELETE CASCADE,
+    VAR_VARIANTE          NUMBER NOT NULL REFERENCES NOVA_VARIANTE(VAR_VARIANTE),
+    DETCOM_CANTIDAD        NUMBER NOT NULL CHECK (DETCOM_CANTIDAD > 0),
+    DETCOM_PRECIO_UNITARIO NUMBER(12,2) NOT NULL,
+    DETCOM_SUBTOTAL        NUMBER(12,2) NOT NULL
+);
+
+-- ------------------------------------------------------------
+-- NOVA_CLIENTE
+-- ------------------------------------------------------------
+CREATE TABLE NOVA_CLIENTE (
+    CLI_CLIENTE   NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    CLI_NOMBRE    VARCHAR2(120) NOT NULL,
+    CLI_DPI_NIT   VARCHAR2(30),
+    CLI_TELEFONO  VARCHAR2(30),
+    CLI_CORREO    VARCHAR2(120),
+    CLI_DIRECCION VARCHAR2(200)
+);
+
+-- ------------------------------------------------------------
+-- NOVA_PEDIDO
+-- ------------------------------------------------------------
+CREATE TABLE NOVA_PEDIDO (
+    PED_PEDIDO  NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    CLI_CLIENTE NUMBER NOT NULL REFERENCES NOVA_CLIENTE(CLI_CLIENTE),
+    USU_USUARIO NUMBER NOT NULL REFERENCES NOVA_USUARIO(USU_USUARIO),
+    PED_FECHA   TIMESTAMP DEFAULT SYSTIMESTAMP NOT NULL,
+    PED_ESTADO  VARCHAR2(20) DEFAULT 'PENDIENTE' NOT NULL
+                CHECK (PED_ESTADO IN ('PENDIENTE','FACTURADO','CANCELADO')),
+    PED_TOTAL   NUMBER(12,2) DEFAULT 0 NOT NULL
+);
+
+-- ------------------------------------------------------------
+-- NOVA_DETALLE_PEDIDO
+-- ------------------------------------------------------------
+CREATE TABLE NOVA_DETALLE_PEDIDO (
+    DETPED_DETALLE_PEDIDO NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    PED_PEDIDO            NUMBER NOT NULL REFERENCES NOVA_PEDIDO(PED_PEDIDO) ON DELETE CASCADE,
+    VAR_VARIANTE          NUMBER NOT NULL REFERENCES NOVA_VARIANTE(VAR_VARIANTE),
+    DETPED_CANTIDAD        NUMBER NOT NULL CHECK (DETPED_CANTIDAD > 0),
+    DETPED_PRECIO_UNITARIO NUMBER(12,2) NOT NULL,
+    DETPED_SUBTOTAL        NUMBER(12,2) NOT NULL
+);
+
+-- ------------------------------------------------------------
+-- NOVA_VENTA
+-- ------------------------------------------------------------
+CREATE TABLE NOVA_VENTA (
+    VENT_VENTA  NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    PED_PEDIDO  NUMBER REFERENCES NOVA_PEDIDO(PED_PEDIDO),   -- opcional: venta directa sin pedido previo
+    CLI_CLIENTE NUMBER NOT NULL REFERENCES NOVA_CLIENTE(CLI_CLIENTE),
+    USU_USUARIO NUMBER NOT NULL REFERENCES NOVA_USUARIO(USU_USUARIO),
+    VENT_FECHA  TIMESTAMP DEFAULT SYSTIMESTAMP NOT NULL,
+    VENT_ESTADO VARCHAR2(20) DEFAULT 'COMPLETADA' NOT NULL
+                CHECK (VENT_ESTADO IN ('COMPLETADA','ANULADA')),
+    VENT_TOTAL  NUMBER(12,2) DEFAULT 0 NOT NULL
+);
+
+-- ------------------------------------------------------------
+-- NOVA_DETALLE_VENTA
+-- ------------------------------------------------------------
+CREATE TABLE NOVA_DETALLE_VENTA (
+    DETVEN_DETALLE_VENTA   NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    VENT_VENTA             NUMBER NOT NULL REFERENCES NOVA_VENTA(VENT_VENTA) ON DELETE CASCADE,
+    VAR_VARIANTE           NUMBER NOT NULL REFERENCES NOVA_VARIANTE(VAR_VARIANTE),
+    DETVEN_CANTIDAD        NUMBER NOT NULL CHECK (DETVEN_CANTIDAD > 0),
+    DETVEN_PRECIO_UNITARIO NUMBER(12,2) NOT NULL,
+    DETVEN_SUBTOTAL        NUMBER(12,2) NOT NULL
+);
+
+-- ------------------------------------------------------------
+-- NOVA_PAGO
+-- ------------------------------------------------------------
+CREATE TABLE NOVA_PAGO (
+    PAG_PAGO   NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    VENT_VENTA NUMBER NOT NULL REFERENCES NOVA_VENTA(VENT_VENTA),
+    PAG_FECHA  TIMESTAMP DEFAULT SYSTIMESTAMP NOT NULL,
+    PAG_MONTO  NUMBER(12,2) NOT NULL,
+    PAG_METODO VARCHAR2(30) NOT NULL CHECK (PAG_METODO IN ('EFECTIVO','TARJETA','TRANSFERENCIA'))
+);
+
+-- ------------------------------------------------------------
+-- NOVA_AUDITORIA (bitácora general de cambios, siguiendo el patrón del diagrama)
+-- ------------------------------------------------------------
+CREATE TABLE NOVA_AUDITORIA (
+    AUDI_AUDITORIA      NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    AUDI_TABLA          VARCHAR2(50) NOT NULL,     -- nombre de la tabla afectada
+    AUDI_ACCION         VARCHAR2(10) NOT NULL CHECK (AUDI_ACCION IN ('INSERT','UPDATE','DELETE')),
+    AUDI_CAMPO          VARCHAR2(50),
+    AUDI_VALOR_ANTES    VARCHAR2(4000),
+    AUDI_VALOR_DESPUES  VARCHAR2(4000),
+    USU_USUARIO         NUMBER REFERENCES NOVA_USUARIO(USU_USUARIO),
+    AUDI_FECHA          TIMESTAMP DEFAULT SYSTIMESTAMP NOT NULL
+);
+
+-- ------------------------------------------------------------
+-- ÍNDICES RECOMENDADOS
+-- ------------------------------------------------------------
+CREATE INDEX IDX_PRODU_CATE ON NOVA_PRODUCTO(CATE_CATEGORIA);
+CREATE INDEX IDX_PRODU_MAR  ON NOVA_PRODUCTO(MAR_MARCA);
+CREATE INDEX IDX_PRODU_GENERO ON NOVA_PRODUCTO(PRODU_GENERO);
+CREATE INDEX IDX_VAR_PRODU  ON NOVA_VARIANTE(PRODU_PRODUCTO);
+CREATE INDEX IDX_MOVI_VAR   ON NOVA_MOVIMIENTO_INVENTARIO(VAR_VARIANTE, ALM_ALMACEN);
+CREATE INDEX IDX_COMP_PROV  ON NOVA_COMPRA(PROV_PROVEEDOR);
+CREATE INDEX IDX_VENT_CLI   ON NOVA_VENTA(CLI_CLIENTE);
+CREATE INDEX IDX_PED_CLI    ON NOVA_PEDIDO(CLI_CLIENTE);
+
+
+-- ------------------------------------------------------------
+-- TRIGGER: actualizar NOVA_INVENTARIO al registrar un movimiento
+-- ------------------------------------------------------------
+CREATE OR REPLACE TRIGGER TRG_MOVI_INVENTARIO
+AFTER INSERT ON NOVA_MOVIMIENTO_INVENTARIO
 FOR EACH ROW
 DECLARE
     v_delta NUMBER;
 BEGIN
-    v_delta := CASE WHEN :NEW.tipo_movimiento = 'ENTRADA'
-                     THEN :NEW.cantidad
-                     ELSE -:NEW.cantidad
+    v_delta := CASE WHEN :NEW.MOVI_TIPO = 'ENTRADA'
+                     THEN :NEW.MOVI_CANTIDAD
+                     ELSE -:NEW.MOVI_CANTIDAD
                END;
 
-    MERGE INTO inventario inv
-    USING (SELECT :NEW.id_variante AS id_variante, :NEW.id_almacen AS id_almacen FROM dual) src
-    ON (inv.id_variante = src.id_variante AND inv.id_almacen = src.id_almacen)
+    MERGE INTO NOVA_INVENTARIO inv
+    USING (SELECT :NEW.VAR_VARIANTE AS VAR_VARIANTE, :NEW.ALM_ALMACEN AS ALM_ALMACEN FROM dual) src
+    ON (inv.VAR_VARIANTE = src.VAR_VARIANTE AND inv.ALM_ALMACEN = src.ALM_ALMACEN)
     WHEN MATCHED THEN
-        UPDATE SET inv.cantidad = inv.cantidad + v_delta
+        UPDATE SET inv.INV_CANTIDAD = inv.INV_CANTIDAD + v_delta
     WHEN NOT MATCHED THEN
-        INSERT (id_variante, id_almacen, cantidad)
-        VALUES (src.id_variante, src.id_almacen, v_delta);
+        INSERT (VAR_VARIANTE, ALM_ALMACEN, INV_CANTIDAD)
+        VALUES (src.VAR_VARIANTE, src.ALM_ALMACEN, v_delta);
 END;
 /
+
+
+
+
+
