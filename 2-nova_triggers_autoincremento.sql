@@ -225,3 +225,52 @@ BEGIN
     :NEW.AUDI_AUDITORIA := SEQ_AUDI.NEXTVAL;
 END;
 /
+
+
+
+
+
+-- ============================================================================
+-- TRIGGER: TRG_MOVI_ACTUALIZA_INV
+-- DESCRIPCIÓN: Actualiza automáticamente el stock en NOVA_INVENTARIO
+--              cada vez que se inserta un registro en NOVA_MOVIMIENTO_INVENTARIO
+-- ============================================================================
+
+CREATE OR REPLACE TRIGGER TRG_MOVI_ACTUALIZA_INV
+AFTER INSERT ON NOVA_MOVIMIENTO_INVENTARIO
+FOR EACH ROW
+DECLARE
+    v_count NUMBER;
+BEGIN
+    -- 1. Verificar si ya existe registro para esa variante y almacén
+    SELECT COUNT(*) INTO v_count 
+    FROM NOVA_INVENTARIO 
+    WHERE VAR_VARIANTE = :NEW.VAR_VARIANTE 
+      AND ALM_ALMACEN  = :NEW.ALM_ALMACEN;
+
+    -- 2. Si el movimiento es ENTRADA (ej: Compras)
+    IF :NEW.MOVI_TIPO = 'ENTRADA' THEN
+        IF v_count > 0 THEN
+            UPDATE NOVA_INVENTARIO 
+            SET INV_CANTIDAD = INV_CANTIDAD + :NEW.MOVI_CANTIDAD
+            WHERE VAR_VARIANTE = :NEW.VAR_VARIANTE 
+              AND ALM_ALMACEN  = :NEW.ALM_ALMACEN;
+        ELSE
+            INSERT INTO NOVA_INVENTARIO (VAR_VARIANTE, ALM_ALMACEN, INV_CANTIDAD)
+            VALUES (:NEW.VAR_VARIANTE, :NEW.ALM_ALMACEN, :NEW.MOVI_CANTIDAD);
+        END IF;
+
+    -- 3. Si el movimiento es SALIDA (ej: Ventas)
+    ELSIF :NEW.MOVI_TIPO = 'SALIDA' THEN
+        IF v_count > 0 THEN
+            UPDATE NOVA_INVENTARIO 
+            SET INV_CANTIDAD = INV_CANTIDAD - :NEW.MOVI_CANTIDAD
+            WHERE VAR_VARIANTE = :NEW.VAR_VARIANTE 
+              AND ALM_ALMACEN  = :NEW.ALM_ALMACEN;
+        ELSE
+            INSERT INTO NOVA_INVENTARIO (VAR_VARIANTE, ALM_ALMACEN, INV_CANTIDAD)
+            VALUES (:NEW.VAR_VARIANTE, :NEW.ALM_ALMACEN, -:NEW.MOVI_CANTIDAD);
+        END IF;
+    END IF;
+END;
+/
